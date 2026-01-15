@@ -27,6 +27,7 @@ interface WebhookPayload {
 }
 
 // --- 1. GET Handler (Verification) ---
+// This handles the "Verify and Save" button in the Meta Dashboard
 export async function GET(req: NextRequest) {
     const searchParams = req.nextUrl.searchParams;
     const mode = searchParams.get('hub.mode');
@@ -43,6 +44,7 @@ export async function GET(req: NextRequest) {
 }
 
 // --- 2. POST Handler (The Logic) ---
+// This receives the live events from Instagram
 export async function POST(req: NextRequest) {
     try {
         // 1. Safety Check: Credentials
@@ -53,27 +55,21 @@ export async function POST(req: NextRequest) {
 
         const body: WebhookPayload = await req.json();
 
-        // 2. Log Incoming Payload (Helpful for debugging, disable in high traffic)
-        // console.log("Incoming Webhook:", JSON.stringify(body, null, 2));
-
-        // 3. Validate Event Type
+        // 2. Validate Event Type
         if (body.object === 'instagram') {
 
-            // Handle empty entries safely
+            // Handle empty entries safely (sometimes Meta sends empty pings)
             const entries = body.entry || [];
 
             for (const entry of entries) {
-                // --- PRODUCTION FIX: Handle undefined changes ---
-                // Some events (like standby, read receipts) have no 'changes' array.
-                // We defaults to [] to prevent "not iterable" crashes.
+                // Safety Check: Use empty array if 'changes' is missing
                 const changes = entry.changes ?? [];
 
                 for (const change of changes) {
-
                     // Filter: We only care about comments
                     if (change.field === 'comments') {
 
-                        // --- PRODUCTION FIX: Handle Media/Deleted Comments ---
+                        // Safety Check: Handle Media/Deleted Comments
                         // If a user sends a GIF or deletes a comment, 'text' might be missing.
                         const rawText = change.value.text;
                         const commentId = change.value.comment_id;
@@ -83,21 +79,20 @@ export async function POST(req: NextRequest) {
                             continue;
                         }
 
-                        // --- CASE INSENSITIVITY LOGIC ---
-                        // Convert to lowercase to match "Roadmap", "ROADMAP", "roadmap"
+                        // Case Insensitivity: Detect "Roadmap", "roadmap", "ROADMAP"
                         const normalizedText = rawText.toLowerCase();
 
                         if (normalizedText.includes('roadmap')) {
                             console.log(`🚀 Keyword found: "${rawText}". Sending DM to ID: ${commentId}`);
 
-                            // We await here to ensure DM is sent before response returns
+                            // Send the DM
                             await sendPrivateReply(commentId);
                         }
                     }
                 }
             }
 
-            // --- CRITICAL FOR META ---
+            // --- CRITICAL ---
             // Always return 200 OK. If you return 500, Meta will retry repeatedly.
             return new NextResponse('EVENT_RECEIVED', { status: 200 });
         }
@@ -114,8 +109,10 @@ export async function POST(req: NextRequest) {
 
 // --- 3. Helper Function: Send the DM ---
 async function sendPrivateReply(commentId: string) {
-    const url = `https://graph.facebook.com/v21.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`;
+    // UPDATED: Using v24.0 to match your Dashboard version
+    const url = `https://graph.facebook.com/v24.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}`;
 
+    // For Private Replies, we use { recipient: { comment_id: "..." } }
     const payload = {
         recipient: {
             comment_id: commentId
