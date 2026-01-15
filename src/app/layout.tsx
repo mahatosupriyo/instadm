@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 
 export const metadata: Metadata = {
   title: "Insta DM",
-  description: "Created by Supriyo",
+  description: "Created by Supriyo Meta Access token Generator",
 };
 
 export default function RootLayout({
